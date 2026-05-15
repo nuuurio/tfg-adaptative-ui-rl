@@ -1,4 +1,4 @@
-import AdaptiveRLWebDemo from "./AdaptativeRLWebDemo"
+import AdaptiveRLWebDemo from "./components/AdaptativeRLWebDemo"
 
 function App() {
   return <AdaptiveRLWebDemo />
