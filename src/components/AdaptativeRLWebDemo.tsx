@@ -325,7 +325,7 @@ export default function AdaptiveRLWebDemo() {
     };
 
     const runRandomBaseline = (steps = 50) => {
-        const baselineResults = [];
+        const baselineResults: { step: number; reward: number; }[] = [];
 
         for (let i = 0; i < steps; i++) {
             const randomAction = actions[Math.floor(Math.random() * actions.length)];
