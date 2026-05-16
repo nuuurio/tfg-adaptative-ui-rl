@@ -3,9 +3,30 @@ import type { Action, QTable } from "./types";
 
 export function createInitialQ(): QTable {
   return {
-    explorador: { A: 1, B: 1, C: 1 },
-    eficient: { A: 1, B: 1, C: 1 },
-    indecis: { A: 1, B: 1, C: 1 },
+    explorador: {
+      tutorials: 0,
+      quick_access: 0,
+      guided_help: 0,
+      recommendations: 0,
+      visual_summary: 0,
+      detailed_explanation: 0,
+    },
+    eficient: {
+      tutorials: 0,
+      quick_access: 0,
+      guided_help: 0,
+      recommendations: 0,
+      visual_summary: 0,
+      detailed_explanation: 0,
+    },
+    indecis: {
+      tutorials: 0,
+      quick_access: 0,
+      guided_help: 0,
+      recommendations: 0,
+      visual_summary: 0,
+      detailed_explanation: 0,
+    },
   };
 }
 

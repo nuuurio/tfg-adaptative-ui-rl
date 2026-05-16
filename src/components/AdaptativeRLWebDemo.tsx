@@ -7,7 +7,9 @@ import {
     Tooltip,
     CartesianGrid,
     Legend,
-    ResponsiveContainer
+    ResponsiveContainer,
+    Bar,
+    BarChart
 } from "recharts";
 
 import {Card, CardContent, CardHeader, CardTitle} from "@/components/ui/card";
@@ -15,7 +17,7 @@ import {Button} from "@/components/ui/button";
 import {Badge} from "@/components/ui/badge";
 
 import {actions, userTypes} from "@/rl/config";
-import type {Decision, QTable, UserType}
+import type {Decision, QTable, UserType, Action}
 from "@/rl/types";
 import {chooseAction, createInitialQ, loadInitialQ, updateQValue} from "@/rl/model";
 import {getPreferredContent, simulateUserResponse} from "@/rl/agents";
@@ -47,14 +49,23 @@ export default function AdaptiveRLWebDemo() {
         step: number;
         reward: number
     }[] > ([]);
+    const [actionHistory,
+        setActionHistory] = useState < {
+        step: number;
+        userType: UserType;
+        action: Action;
+        reward: number;
+    }[] > ([]);
+    const [qValueHistory,
+        setQValueHistory] = useState < ({step: number} & Partial < Record < Action, number >>)[] > ([]);
 
     useEffect(() => {
         localStorage.setItem("qTable", JSON.stringify(qTable));
     }, [qTable]);
 
     function getEpsilon(step : number) {
-        const minEpsilon = 0.05;
-        const decayRate = 0.98;
+        const minEpsilon = 0.08;
+        const decayRate = 0.995;
 
         return Math.max(minEpsilon, 0.3 * Math.pow(decayRate, step));
     }
@@ -106,6 +117,14 @@ export default function AdaptiveRLWebDemo() {
             timestamp: new Date().toLocaleTimeString()
         };
 
+        setQValueHistory((prev) => [
+            ...prev, {
+                step: prev.length + 1,
+                ...qTable[selectedUser],
+                [action]: updateQValue(qTable[selectedUser][action], result.reward)
+            }
+        ]);
+
         setLastDecision(decision);
         setHistory((prev) => [
             decision, ...prev
@@ -114,6 +133,15 @@ export default function AdaptiveRLWebDemo() {
         setChartData((prev) => [
             ...prev, {
                 step: prev.length + 1,
+                reward: decision.reward
+            }
+        ]);
+
+        setActionHistory((prev) => [
+            ...prev, {
+                step: prev.length + 1,
+                userType: selectedUser,
+                action: decision.action,
                 reward: decision.reward
             }
         ]);
@@ -166,10 +194,22 @@ export default function AdaptiveRLWebDemo() {
                 step: nextMultiUserChart[selectedUser].length + 1,
                 reward: result.reward
             });
-
-            setStepCount((prev) => prev + steps);
-            setEpsilon(getEpsilon(stepCount + steps));
         }
+
+        setQValueHistory((prev) => [
+            ...prev,
+            ...log
+                .slice()
+                .reverse()
+                .map((_, index) => ({
+                    step: prev.length + index + 1,
+                    ...nextQ[selectedUser]
+                }))
+        ]);
+
+        const finalStep = stepCount + steps;
+        setStepCount(finalStep);
+        setEpsilon(getEpsilon(finalStep));
 
         setQTable(nextQ);
         setMultiUserChart(nextMultiUserChart);
@@ -189,6 +229,19 @@ export default function AdaptiveRLWebDemo() {
                 .reverse()
                 .map((item, index) => ({
                     step: prev.length + index + 1,
+                    reward: item.reward
+                }))
+        ]);
+
+        setActionHistory((prev) => [
+            ...prev,
+            ...log
+                .slice()
+                .reverse()
+                .map((item, index) => ({
+                    step: prev.length + index + 1,
+                    userType: item.userType,
+                    action: item.action,
                     reward: item.reward
                 }))
         ]);
@@ -293,11 +346,7 @@ export default function AdaptiveRLWebDemo() {
     const resetSelectedUser = () => {
         setQTable((prev) => ({
             ...prev,
-            [selectedUser]: {
-                A: 0,
-                B: 0,
-                C: 0
-            }
+            [selectedUser]: createInitialQ()[selectedUser]
         }));
 
         setHistory((prev) => prev.filter((item) => item.userType !== selectedUser));
@@ -308,6 +357,7 @@ export default function AdaptiveRLWebDemo() {
         }));
 
         setLastDecision(null);
+        setActionHistory([]);
     };
 
     const clearSavedQTable = () => {
@@ -322,14 +372,22 @@ export default function AdaptiveRLWebDemo() {
         setChartData([]);
         setBaselineChartData([]);
         setMultiUserChart(createInitialMultiUserChart());
+        setQValueHistory([]);
+        setActionHistory([]);
     };
 
     const runRandomBaseline = (steps = 50) => {
-        const baselineResults: { step: number; reward: number; }[] = [];
+        const baselineResults : {
+            step : number;
+            reward : number;
+        }[] = [];
 
         for (let i = 0; i < steps; i++) {
             const randomAction = actions[Math.floor(Math.random() * actions.length)];
-            const result = simulateUserResponse(selectedUser, randomAction);
+            const result = simulateUserResponse(selectedUser, randomAction, {
+                historyLength: baselineChartData.length + i,
+                lastAction: null
+            });
 
             baselineResults.push({
                 step: baselineChartData.length + i + 1,
@@ -342,6 +400,38 @@ export default function AdaptiveRLWebDemo() {
             ...baselineResults
         ]);
     };
+
+    const cumulativeRewardData = useMemo(() => {
+        let rlTotal = 0;
+        let randomTotal = 0;
+
+        const maxLength = Math.max(multiUserChart[selectedUser].length, baselineChartData.length);
+
+        return Array.from({
+            length: maxLength
+        }, (_, index) => {
+            rlTotal += multiUserChart[selectedUser][index]
+                ?.reward ?? 0;
+            randomTotal += baselineChartData[index]
+                ?.reward ?? 0;
+
+            return {
+                step: index + 1,
+                RL: Number(rlTotal.toFixed(2)),
+                Random: Number(randomTotal.toFixed(2))
+            };
+        });
+    }, [multiUserChart, baselineChartData, selectedUser]);
+
+    const actionDistributionData = useMemo(() => {
+        const filtered = actionHistory.filter((item) => item.userType === selectedUser);
+
+        return actions.map((action) => {
+            const count = filtered.filter((item) => item.action === action).length;
+
+            return {action, count};
+        });
+    }, [actionHistory, selectedUser]);
 
     return (
         <div className="min-h-screen bg-slate-50 p-6">
@@ -468,11 +558,11 @@ export default function AdaptiveRLWebDemo() {
                                             ? "border-slate-900 bg-white shadow-md"
                                             : "border-slate-200 bg-slate-100"}`}>
                                             <div className="flex items-center justify-between">
-                                                <h3 className="text-lg font-semibold">Bloc {action}</h3>
+                                                <h3 className="text-lg font-semibold">{contentLabel(action)}</h3>
                                                 {isRecommended && <Badge className="rounded-xl">Actiu</Badge>}
                                             </div>
 
-                                            <p className="mt-2 text-sm text-slate-600">{contentLabel(action)}</p>
+                                            <p className="mt-2 text-sm text-slate-600">{action}</p>
 
                                             <p className="mt-4 text-xs text-slate-500">
                                                 Q-value: {qTable[selectedUser][action].toFixed(2)}
@@ -521,8 +611,11 @@ export default function AdaptiveRLWebDemo() {
                                             <strong>Acció:</strong>
                                             mostrar contingut {lastDecision.action}</p>
                                         <p>
-                                            <strong>Preferència real simulada:</strong>
+                                            <strong>Acció amb més afinitat:</strong>
                                             {lastDecision.preferred}</p>
+                                        <p>
+                                            <strong>Afinitat amb l’acció:</strong>
+                                            {lastDecision.preferenceScore}</p>
                                         <p>
                                             <strong>Clics:</strong>
                                             {lastDecision.clicks}</p>
@@ -659,10 +752,110 @@ export default function AdaptiveRLWebDemo() {
 
                     <Card className="rounded-2xl shadow-sm">
                         <CardHeader>
+                            <CardTitle>Evolució dels Q-values</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {qValueHistory.length > 0
+                                ? (
+                                    <div className="h-[320px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={qValueHistory}>
+                                                <CartesianGrid strokeDasharray="3 3"/>
+                                                <XAxis dataKey="step"/>
+                                                <YAxis/>
+                                                <Tooltip/>
+                                                <Legend/> {actions.map((action) => (<Line
+                                                    key={action}
+                                                    type="monotone"
+                                                    dataKey={action}
+                                                    name={contentLabel(action)}
+                                                    strokeWidth={2}
+                                                    dot={false}/>))}
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )
+                                : (
+                                    <p className="text-sm text-slate-600">
+                                        Encara no hi ha Q-values per mostrar.
+                                    </p>
+                                )}
+                        </CardContent>
+                    </Card>
+
+                    <Card className="rounded-2xl shadow-sm">
+                        <CardHeader>
+                            <CardTitle>Reward acumulat: RL vs Random</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {cumulativeRewardData.length > 0
+                                ? (
+                                    <div className="h-[320px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={cumulativeRewardData}>
+                                                <CartesianGrid strokeDasharray="3 3"/>
+                                                <XAxis dataKey="step"/>
+                                                <YAxis/>
+                                                <Tooltip/>
+                                                <Legend/>
+                                                <Line
+                                                    type="monotone"
+                                                    dataKey="RL"
+                                                    name="RL"
+                                                    stroke="#2563eb"
+                                                    strokeWidth={2}
+                                                    dot={false}/>
+                                                <Line
+                                                    type="monotone"
+                                                    dataKey="Random"
+                                                    name="Random"
+                                                    stroke="#dc2626"
+                                                    strokeWidth={2}
+                                                    dot={false}/>
+                                            </LineChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )
+                                : (
+                                    <p className="text-sm text-slate-600">
+                                        Encara no hi ha dades acumulades.
+                                    </p>
+                                )}
+                        </CardContent>
+                    </Card>
+
+                    <Card className="rounded-2xl shadow-sm">
+                        <CardHeader>
+                            <CardTitle>Distribució d’accions seleccionades</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {actionHistory.some((item) => item.userType === selectedUser) ? (
+                                    <div className="h-[320px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={actionDistributionData}>
+                                                <CartesianGrid strokeDasharray="3 3"/>
+                                                <XAxis dataKey="action"/>
+                                                <YAxis allowDecimals={false}/>
+                                                <Tooltip/>
+                                                <Bar dataKey="count" name="Nombre de seleccions"/>
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                )
+                                : (
+                                    <p className="text-sm text-slate-600">
+                                        Encara no hi ha accions registrades.
+                                    </p>
+                                )}
+                        </CardContent>
+                    </Card>
+
+                    <Card className="rounded-2xl shadow-sm">
+                        <CardHeader>
                             <CardTitle>Comparació RL vs baseline random</CardTitle>
                         </CardHeader>
                         <CardContent>
-                            {multiUserChart[selectedUser].length || baselineChartData.length > 0
+                            {multiUserChart[selectedUser].length > 0 || baselineChartData.length > 0
                                 ? (
                                     <div className="h-[280px] w-full">
                                         <ResponsiveContainer width="100%" height="100%">
