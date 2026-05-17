@@ -19,7 +19,7 @@ export function createInitialQ(): QTable {
       visual_summary: 0,
       detailed_explanation: 0,
     },
-    indecis: {
+    novell: {
       tutorials: 0,
       quick_access: 0,
       guided_help: 0,
@@ -44,7 +44,7 @@ export function chooseAction(qForState: Record<Action, number>, epsilon = 0.2) {
   }
 
   const best = actions.reduce((best, current) =>
-    qForState[current] > qForState[best] ? current : best
+    qForState[current] > qForState[best] ? current : best,
   );
 
   return {

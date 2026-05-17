@@ -10,7 +10,7 @@ The system adapts the content shown to different user profiles using a simple Q-
 
 ## Key Features
 
-- User profiles: explorer, efficient, indecisive
+- User profiles: explorer, efficient, newbie
 - Content recommendation (A, B, C)
 - Q-learning algorithm
 - Simulated user interactions

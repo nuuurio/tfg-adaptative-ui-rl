@@ -1,5 +1,11 @@
-export type UserType = "explorador" | "eficient" | "indecis";
-export type Action = "tutorials" | "quick_access" | "guided_help" | "recommendations" | "visual_summary" | "detailed_explanation";
+export type UserType = "explorador" | "eficient" | "novell";
+export type Action =
+  | "tutorials"
+  | "quick_access"
+  | "guided_help"
+  | "recommendations"
+  | "visual_summary"
+  | "detailed_explanation";
 export type Strategy = "exploration" | "exploitation" | "manual";
 
 export type QTable = Record<UserType, Record<Action, number>>;

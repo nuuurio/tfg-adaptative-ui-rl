@@ -8,7 +8,7 @@ export const actions: Action[] = [
   "visual_summary",
   "detailed_explanation",
 ] as const;
-export const userTypes: UserType[] = ["explorador", "eficient", "indecis"];
+export const userTypes: UserType[] = ["explorador", "eficient", "novell"];
 
 export const userProfiles = {
   explorador: {
@@ -39,18 +39,18 @@ export const userProfiles = {
     consistency: 0.9,
     fatigueSensitivity: 0.35,
   },
-  indecis: {
+  novell: {
     preferences: {
-      tutorials: 0.6,
-      quick_access: 0.55,
-      guided_help: 0.78,
-      recommendations: 0.76,
-      visual_summary: 0.68,
-      detailed_explanation: 0.72,
+      tutorials: 0.9,
+      quick_access: 0.25,
+      guided_help: 0.88,
+      recommendations: 0.45,
+      visual_summary: 0.55,
+      detailed_explanation: 0.85,
     },
-    curiosity: 0.55,
-    patience: 0.55,
-    consistency: 0.3,
-    fatigueSensitivity: 0.3,
-  }
+    curiosity: 0.35,
+    patience: 0.85,
+    consistency: 0.65,
+    fatigueSensitivity: 0.25,
+  },
 } as const;
