@@ -9,12 +9,12 @@ export function createInitialMultiUserChart() {
 }
 
 export function buildCombinedChartData(
-  multiUserChart: Record<UserType, { step: number; reward: number }[]>
+  multiUserChart: Record<UserType, { step: number; reward: number }[]>,
 ) {
   const maxLength = Math.max(
     multiUserChart.explorador.length,
     multiUserChart.eficient.length,
-    multiUserChart.novell.length
+    multiUserChart.novell.length,
   );
 
   return Array.from({ length: maxLength }, (_, index) => ({

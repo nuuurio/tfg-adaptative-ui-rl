@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Cell,
   LineChart,
   Line,
   XAxis,
@@ -30,11 +31,11 @@ import {
   createInitialMultiUserChart,
 } from "@/rl/charts";
 import { contentLabel } from "@/utils/ui";
+import { COLORS } from "./ui/palette";
 
 export default function AdaptiveRLWebDemo() {
   const [selectedUser, setSelectedUser] = useState<UserType>("explorador");
   const [epsilon, setEpsilon] = useState(0.3);
-  const [stepCount, setStepCount] = useState(0);
   const [qTable, setQTable] = useState<QTable>(loadInitialQ);
   const [lastDecision, setLastDecision] = useState<Decision | null>(null);
   const [history, setHistory] = useState<Decision[]>([]);
@@ -47,12 +48,6 @@ export default function AdaptiveRLWebDemo() {
   const [multiUserChart, setMultiUserChart] = useState(
     createInitialMultiUserChart,
   );
-  const [baselineChartData, setBaselineChartData] = useState<
-    {
-      step: number;
-      reward: number;
-    }[]
-  >([]);
   const [actionHistory, setActionHistory] = useState<
     {
       step: number;
@@ -62,13 +57,10 @@ export default function AdaptiveRLWebDemo() {
     }[]
   >([]);
   const [qValueHistory, setQValueHistory] = useState<
-    ({ step: number } & Partial<Record<Action, number>>)[]
+    ({ step: number; userType: UserType } & Partial<Record<Action, number>>)[]
   >([]);
   const [epsilonHistory, setEpsilonHistory] = useState<
-    {
-      step: number;
-      epsilon: number;
-    }[]
+    { step: number; userType: UserType; epsilon: number }[]
   >([]);
   const [strategyHistory, setStrategyHistory] = useState<
     {
@@ -111,44 +103,69 @@ export default function AdaptiveRLWebDemo() {
         ).toFixed(2)
       : "0";
 
+  const selectedRLData = useMemo(() => {
+    return multiUserChart[selectedUser] ?? [];
+  }, [multiUserChart, selectedUser]);
+
+  const selectedRandomData = useMemo(() => {
+    return baselineByUser[selectedUser] ?? [];
+  }, [baselineByUser, selectedUser]);
+
   const evaluationMetrics = useMemo(() => {
-    const rlRewards = multiUserChart[selectedUser].map((item) => item.reward);
-    const randomRewards = baselineChartData.map((item) => item.reward);
-
-    const average = (values: number[]) =>
-      values.length === 0
-        ? 0
-        : values.reduce((total, value) => total + value, 0) / values.length;
-
-    const variance = (values: number[]) => {
-      if (values.length < 2) return 0;
-      const avg = average(values);
-      return (
-        values.reduce((total, value) => total + Math.pow(value - avg, 2), 0) /
-        values.length
-      );
-    };
-
-    const rlAverage = average(rlRewards);
-    const randomAverage = average(randomRewards);
-    const rlTotal = rlRewards.reduce((total, value) => total + value, 0);
-    const randomTotal = randomRewards.reduce(
-      (total, value) => total + value,
+    const rlTotal = selectedRLData.reduce((sum, item) => sum + item.reward, 0);
+    const randomTotal = selectedRandomData.reduce(
+      (sum, item) => sum + item.reward,
       0,
     );
 
+    const rlAverage =
+      selectedRLData.length > 0 ? rlTotal / selectedRLData.length : 0;
+
+    const randomAverage =
+      selectedRandomData.length > 0
+        ? randomTotal / selectedRandomData.length
+        : 0;
+
+    const relativeImprovement =
+      randomAverage !== 0
+        ? ((rlAverage - randomAverage) / Math.abs(randomAverage)) * 100
+        : 0;
+
+    const rlVariance =
+      selectedRLData.length > 0
+        ? selectedRLData.reduce(
+            (sum, item) => sum + Math.pow(item.reward - rlAverage, 2),
+            0,
+          ) / selectedRLData.length
+        : 0;
+
     return {
-      rlAverage: rlAverage.toFixed(2),
-      randomAverage: randomAverage.toFixed(2),
-      improvement:
-        randomAverage === 0
-          ? "—"
-          : `${(((rlAverage - randomAverage) / Math.abs(randomAverage)) * 100).toFixed(1)}%`,
-      rlTotal: rlTotal.toFixed(2),
-      randomTotal: randomTotal.toFixed(2),
-      variance: variance(rlRewards).toFixed(2),
+      rlAverage,
+      randomAverage,
+      relativeImprovement,
+      rlTotal,
+      randomTotal,
+      rlVariance,
     };
-  }, [multiUserChart, baselineChartData, selectedUser]);
+  }, [selectedRLData, selectedRandomData]);
+
+  const selectedEpsilonHistory = useMemo(() => {
+    return epsilonHistory
+      .filter((item) => item.userType === selectedUser)
+      .map((item, index) => ({
+        ...item,
+        step: index + 1,
+      }));
+  }, [epsilonHistory, selectedUser]);
+
+  const selectedQValueHistory = useMemo(() => {
+    return qValueHistory
+      .filter((item) => item.userType === selectedUser)
+      .map((item, index) => ({
+        ...item,
+        step: index + 1,
+      }));
+  }, [qValueHistory, selectedUser]);
 
   const strategyDistributionData = useMemo(() => {
     const totals = strategyHistory.reduce<Record<string, number>>(
@@ -223,15 +240,12 @@ export default function AdaptiveRLWebDemo() {
       ...prev,
       [selectedUser]: [...prev[selectedUser], ...baselineResults],
     }));
-
-    setBaselineChartData((prev) => [...prev, ...baselineResults]);
   };
 
   const runOneTrainingStep = () => {
-    const newStep = stepCount + 1;
-    setStepCount(newStep);
+    const currentUserStep = (multiUserChart[selectedUser]?.length ?? 0) + 1;
 
-    const dynamicEpsilon = getEpsilon(newStep);
+    const dynamicEpsilon = getEpsilon(currentUserStep);
     setEpsilon(dynamicEpsilon);
 
     const qForState = qTable[selectedUser];
@@ -263,7 +277,8 @@ export default function AdaptiveRLWebDemo() {
     setQValueHistory((prev) => [
       ...prev,
       {
-        step: prev.length + 1,
+        step: prev.filter((item) => item.userType === selectedUser).length + 1,
+        userType: selectedUser,
         ...qTable[selectedUser],
         [action]: updateQValue(qTable[selectedUser][action], result.reward),
       },
@@ -277,6 +292,15 @@ export default function AdaptiveRLWebDemo() {
       {
         step: prev.length + 1,
         reward: decision.reward,
+      },
+    ]);
+
+    setEpsilonHistory((prev) => [
+      ...prev,
+      {
+        step: prev.filter((item) => item.userType === selectedUser).length + 1,
+        userType: selectedUser,
+        epsilon: dynamicEpsilon,
       },
     ]);
 
@@ -310,8 +334,10 @@ export default function AdaptiveRLWebDemo() {
     ) as Record<UserType, { step: number; reward: number }[]>;
 
     for (let i = 0; i < steps; i++) {
-      const currentStep = stepCount + i + 1;
-      const dynamicEpsilon = getEpsilon(currentStep);
+      const currentUserStep =
+        (nextMultiUserChart[selectedUser]?.length ?? 0) + 1;
+
+      const dynamicEpsilon = getEpsilon(currentUserStep);
 
       const { action, strategy } = chooseAction(
         nextQ[selectedUser],
@@ -349,32 +375,46 @@ export default function AdaptiveRLWebDemo() {
       });
     }
 
-    setQValueHistory((prev) => [
-      ...prev,
-      ...log
-        .slice()
-        .reverse()
-        .map((_, index) => ({
-          step: prev.length + index + 1,
-          ...nextQ[selectedUser],
-        })),
-    ]);
+    setQValueHistory((prev) => {
+      const currentUserSteps = prev.filter(
+        (item) => item.userType === selectedUser,
+      ).length;
 
-    const finalStep = stepCount + steps;
-    setStepCount(finalStep);
-    setEpsilon(getEpsilon(finalStep));
-    setEpsilonHistory((prev) => [
-      ...prev,
-      ...Array.from(
-        {
-          length: steps,
-        },
-        (_, index) => {
-          const step = stepCount + index + 1;
-          return { step, epsilon: getEpsilon(step) };
-        },
-      ),
-    ]);
+      return [
+        ...prev,
+        ...log
+          .slice()
+          .reverse()
+          .map((_, index) => ({
+            step: currentUserSteps + index + 1,
+            userType: selectedUser,
+            ...nextQ[selectedUser],
+          })),
+      ];
+    });
+
+    const finalUserStep = nextMultiUserChart[selectedUser].length;
+
+    setEpsilon(getEpsilon(finalUserStep));
+
+    setEpsilonHistory((prev) => {
+      const currentUserSteps = prev.filter(
+        (item) => item.userType === selectedUser,
+      ).length;
+
+      return [
+        ...prev,
+        ...Array.from({ length: steps }, (_, index) => {
+          const userStep = currentUserSteps + index + 1;
+
+          return {
+            step: userStep,
+            userType: selectedUser,
+            epsilon: getEpsilon(userStep),
+          };
+        }),
+      ];
+    });
 
     setQTable(nextQ);
     setMultiUserChart(nextMultiUserChart);
@@ -574,7 +614,6 @@ export default function AdaptiveRLWebDemo() {
     setLastDecision(null);
     setHistory([]);
     setChartData([]);
-    setBaselineChartData([]);
     setMultiUserChart(createInitialMultiUserChart());
     setQValueHistory([]);
     setActionHistory([]);
@@ -632,14 +671,14 @@ export default function AdaptiveRLWebDemo() {
           <h1 className="text-3xl font-bold tracking-tight">
             Demo web adaptativa amb reinforcement learning
           </h1>
-          <p className="mt-2 max-w-3xl text-base text-slate-600">
+          <p className="mt-2 mx-auto max-w-3xl text-base text-slate-600">
             Aquesta demo mostra una versió simple del TFG: el sistema aprèn quin
             contingut mostrar segons el perfil d’usuari i actualitza una Q-table
             en funció de la recompensa obtinguda.
           </p>
         </div>
 
-        <Card className="rounded-2xl shadow-sm">
+        {/* <Card className="rounded-2xl shadow-sm">
           <CardHeader>
             <CardTitle>Formulació formal del model</CardTitle>
           </CardHeader>
@@ -664,7 +703,7 @@ export default function AdaptiveRLWebDemo() {
               estat següent, factor de descompte γ i recompensa futura esperada.
             </p>
           </CardContent>
-        </Card>
+        </Card> */}
 
         <div className="grid gap-6 lg:grid-cols-3">
           <Card className="rounded-2xl shadow-sm lg:col-span-1">
@@ -982,37 +1021,37 @@ export default function AdaptiveRLWebDemo() {
               <div className="rounded-2xl border p-4">
                 <p className="text-slate-500">Reward mitjà RL</p>
                 <p className="text-2xl font-semibold">
-                  {evaluationMetrics.rlAverage}
+                  {evaluationMetrics.rlAverage.toFixed(2)}
                 </p>
               </div>
               <div className="rounded-2xl border p-4">
                 <p className="text-slate-500">Reward mitjà random</p>
                 <p className="text-2xl font-semibold">
-                  {evaluationMetrics.randomAverage}
+                  {evaluationMetrics.randomAverage.toFixed(2)}
                 </p>
               </div>
               <div className="rounded-2xl border p-4">
                 <p className="text-slate-500">Millora relativa</p>
                 <p className="text-2xl font-semibold">
-                  {evaluationMetrics.improvement}
+                  {evaluationMetrics.relativeImprovement.toFixed(1)}%
                 </p>
               </div>
               <div className="rounded-2xl border p-4">
                 <p className="text-slate-500">Reward acumulat RL</p>
                 <p className="text-2xl font-semibold">
-                  {evaluationMetrics.rlTotal}
+                  {evaluationMetrics.rlTotal.toFixed(2)}
                 </p>
               </div>
               <div className="rounded-2xl border p-4">
                 <p className="text-slate-500">Reward acumulat random</p>
                 <p className="text-2xl font-semibold">
-                  {evaluationMetrics.randomTotal}
+                  {evaluationMetrics.randomTotal.toFixed(2)}
                 </p>
               </div>
               <div className="rounded-2xl border p-4">
                 <p className="text-slate-500">Variància RL</p>
                 <p className="text-2xl font-semibold">
-                  {evaluationMetrics.variance}
+                  {evaluationMetrics.rlVariance.toFixed(2)}
                 </p>
               </div>
             </div>
@@ -1056,21 +1095,22 @@ export default function AdaptiveRLWebDemo() {
               <CardTitle>Evolució dels Q-values</CardTitle>
             </CardHeader>
             <CardContent>
-              {qValueHistory.length > 0 ? (
+              {selectedQValueHistory.length > 0 ? (
                 <div className="h-[320px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={qValueHistory}>
+                    <LineChart data={selectedQValueHistory}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="step" />
                       <YAxis />
                       <Tooltip />
                       <Legend />{" "}
-                      {actions.map((action) => (
+                      {actions.map((action, index) => (
                         <Line
                           key={action}
                           type="monotone"
                           dataKey={action}
                           name={contentLabel(action)}
+                          stroke={COLORS.actions[index % COLORS.actions.length]}
                           strokeWidth={2}
                           dot={false}
                         />
@@ -1103,7 +1143,7 @@ export default function AdaptiveRLWebDemo() {
                         type="monotone"
                         dataKey="RL"
                         name="RL"
-                        stroke="#2563eb"
+                        stroke={COLORS.rl}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -1111,7 +1151,7 @@ export default function AdaptiveRLWebDemo() {
                         type="monotone"
                         dataKey="Random"
                         name="Random"
-                        stroke="#dc2626"
+                        stroke={COLORS.random}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -1138,7 +1178,14 @@ export default function AdaptiveRLWebDemo() {
                       <XAxis dataKey="action" />
                       <YAxis allowDecimals={false} />
                       <Tooltip />
-                      <Bar dataKey="count" name="Nombre de seleccions" />
+                      <Bar dataKey="count" name="Nombre de seleccions">
+                        {actionDistributionData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={COLORS.actions[index % COLORS.actions.length]}
+                          />
+                        ))}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -1166,8 +1213,16 @@ export default function AdaptiveRLWebDemo() {
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Bar dataKey="RL" name="Reward mitjà RL" />
-                      <Bar dataKey="Random" name="Reward mitjà random" />
+                      <Bar
+                        dataKey="RL"
+                        name="Reward mitjà RL"
+                        fill={COLORS.rl}
+                      />
+                      <Bar
+                        dataKey="Random"
+                        name="Reward mitjà random"
+                        fill={COLORS.random}
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -1180,13 +1235,13 @@ export default function AdaptiveRLWebDemo() {
           </Card>
           <Card className="rounded-2xl shadow-sm">
             <CardHeader>
-              <CardTitle>Decaïment d'epsilon</CardTitle>
+              <CardTitle>Disminució d'epsilon</CardTitle>
             </CardHeader>
             <CardContent>
-              {epsilonHistory.length > 0 ? (
+              {selectedEpsilonHistory.length > 0 ? (
                 <div className="h-[280px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={epsilonHistory}>
+                    <LineChart data={selectedEpsilonHistory}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="step" />
                       <YAxis domain={[0, 0.35]} />
@@ -1195,7 +1250,8 @@ export default function AdaptiveRLWebDemo() {
                         type="monotone"
                         dataKey="epsilon"
                         name="Epsilon"
-                        strokeWidth={2}
+                        stroke={COLORS.epsilon}
+                        strokeWidth={3}
                         dot={false}
                       />
                     </LineChart>
@@ -1221,7 +1277,18 @@ export default function AdaptiveRLWebDemo() {
                       <XAxis dataKey="strategy" />
                       <YAxis allowDecimals={false} />
                       <Tooltip />
-                      <Bar dataKey="count" name="Nombre de decisions" />
+                      <Bar dataKey="count" name="Nombre de decisions">
+                        {strategyDistributionData.map((entry) => {
+                          let color = "#64748b";
+                          if (entry.strategy === "exploration")
+                            color = "#f59e0b";
+                          if (entry.strategy === "exploitation")
+                            color = "#16a34a";
+                          if (entry.strategy === "manual") color = "#3b82f6";
+
+                          return <Cell key={entry.strategy} fill={color} />;
+                        })}
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -1239,8 +1306,7 @@ export default function AdaptiveRLWebDemo() {
             </CardHeader>
             <CardContent>
               {" "}
-              {multiUserChart[selectedUser].length > 0 ||
-              baselineChartData.length > 0 ? (
+              {selectedRLData.length > 0 || selectedRandomData.length > 0 ? (
                 <div className="h-[280px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart>
@@ -1254,21 +1320,21 @@ export default function AdaptiveRLWebDemo() {
                       <Tooltip />
 
                       <Line
-                        data={multiUserChart[selectedUser]}
+                        data={selectedRLData}
                         type="monotone"
                         dataKey="reward"
                         name="RL"
-                        stroke="#2563eb"
+                        stroke={COLORS.rl}
                         strokeWidth={2}
                         dot={false}
                       />
 
                       <Line
-                        data={baselineChartData}
+                        data={selectedRandomData}
                         type="monotone"
                         dataKey="reward"
                         name="Random"
-                        stroke="#dc2626"
+                        stroke={COLORS.random}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -1300,7 +1366,7 @@ export default function AdaptiveRLWebDemo() {
                         type="monotone"
                         dataKey="explorador"
                         name="Explorador"
-                        stroke="#7c3aed"
+                        stroke={COLORS.explorador}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -1308,7 +1374,7 @@ export default function AdaptiveRLWebDemo() {
                         type="monotone"
                         dataKey="eficient"
                         name="Eficient"
-                        stroke="#16a34a"
+                        stroke={COLORS.eficient}
                         strokeWidth={2}
                         dot={false}
                       />
@@ -1316,7 +1382,7 @@ export default function AdaptiveRLWebDemo() {
                         type="monotone"
                         dataKey="novell"
                         name="Novell"
-                        stroke="#ea580c"
+                        stroke={COLORS.novell}
                         strokeWidth={2}
                         dot={false}
                       />
